@@ -38,7 +38,7 @@ python upload_data.py DATA_NAME PROJECT_NAME "Sample description of uploading ru
 # Trains the model
 # This should be run on a system with a GPU (e.g., our server)
 cd learning
-python training.py MODEL_NAME PROJECT_NAME "Sample description of training run..." ARCHITECTURE_NAME DATA_NAME
+python training.py MODEL_NAME PROJECT_NAME "Sample description of training run..." ARCHITECTURE_NAME DATA_NAME(S)
 
 # Performs inference
 # This will run on a system that can run Unreal Engine

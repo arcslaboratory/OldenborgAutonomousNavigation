@@ -1,9 +1,11 @@
 from argparse import ArgumentParser, Namespace
 from math import radians
-from pathlib import Path
+from pathlib import Path, PurePath
 from time import sleep
 
 import enlighten
+from subprocess import run as sprun
+from os import chdir
 
 from boxnav.box import Pt
 from boxnav.boxenv import BoxEnv
@@ -37,7 +39,6 @@ def simulate(args: Namespace) -> None:
 
     pbar_manager = enlighten.get_manager()
     actions_pbar = pbar_manager.counter(total=args.max_total_actions, desc="   Actions")
-    navigation_pbar = pbar_manager.counter(total=100, desc="Completion")
 
     for _ in range(args.max_total_actions):
         # Check for stopping conditions
@@ -58,19 +59,35 @@ def simulate(args: Namespace) -> None:
         action_taken, _ = agent.execute_navigator_action()
         print("Action taken:", action_taken)
 
-        actions_pbar.update()
-
         # Navigation progress is based on the percentage of the environment navigated
-        navigation_pbar.count = int(agent.get_percent_through_env())
-        navigation_pbar.update()
+        actions_pbar.update()
 
     if args.ue:
         agent.ue.close_osc()
 
-    navigation_pbar.close()
     actions_pbar.close()
 
     print("Simulation complete.")
+
+    if args.auto_upload:
+        chdir("..")
+        chdir("learning")
+        sprun(
+            [
+                "python",
+                "upload_data.py",
+                PurePath(agent.image_directory).stem,
+                args.auto_upload,
+                (
+                    "Automatically uploading data from "
+                    + PurePath(agent.image_directory).stem
+                    + " run."
+                ),
+                agent.image_directory,
+            ]
+        )
+        chdir("..")
+        chdir("boxnav")
 
     if args.animation_extension:
         # Generate a unique filename (don't overwrite previous animations)
@@ -125,6 +142,12 @@ def main():
         "--stop_after_one_trial",
         action="store_true",
         help="Stop after one time through the environment (for debugging).",
+    )
+
+    argparser.add_argument(
+        "--auto_upload",
+        type=str,
+        help="Automatically upload data to wandb after running boxsim. Provide wandb project name (existing or new).",
     )
 
     args = argparser.parse_args()

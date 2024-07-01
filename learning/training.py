@@ -2,6 +2,7 @@
 Use batch_tfms=aug_transforms() to apply data augmentation
 Better for sim2real?
 """
+
 from argparse import ArgumentParser, Namespace
 from functools import partial
 from math import radians
@@ -49,7 +50,7 @@ def parse_args() -> Namespace:
     )
 
     # Dataset configuration
-    arg_parser.add_argument("dataset_name", help="Name of dataset to use.")
+    arg_parser.add_argument("dataset_names", nargs="+", help="Name of datasets to use.")
     arg_parser.add_argument(
         "--pretrained", action="store_true", help="Use pretrained model."
     )
@@ -104,13 +105,17 @@ def setup_wandb(args: Namespace):
     if run is None:
         raise Exception("wandb.init() failed")
 
-    if args.local_data:
-        data_dir = args.local_data
-    else:
-        artifact = run.use_artifact(f"{args.dataset_name}:latest")
-        data_dir = artifact.download()
+    data_dirs = []
 
-    return run, data_dir
+    for dataset_name in args.dataset_names:
+        if args.local_data:
+            data_dir = dataset_name
+        else:
+            artifact = run.use_artifact(f"{dataset_name}:latest")
+            data_dir = artifact.download()
+        data_dirs.append(data_dir)
+
+    return run, data_dirs
 
 
 def get_angle_from_filename(filename: str) -> float:
@@ -135,21 +140,22 @@ def y_from_filename(rotation_threshold: float, filename: str) -> str:
         return "forward"
 
 
-def get_dls(args: Namespace, data_path: str):
+def get_dls(args: Namespace, data_paths: list):
     # NOTE: not allowed to add a type annotation to the input
-
-    image_filenames: list = get_image_files(data_path)  # type:ignore
+    image_filenames = []
+    for data_path in data_paths:
+        image_filenames.extend(get_image_files(data_path))  # type:ignore
 
     # Using a partial function to set the rotation_threshold from args
     label_func = partial(y_from_filename, args.rotation_threshold)
 
     if args.use_command_image:
         return get_image_command_category_dataloaders(
-            args, data_path, image_filenames, label_func
+            args, data_paths, image_filenames, label_func
         )
     else:
         return ImageDataLoaders.from_name_func(
-            data_path,
+            data_paths[0],  # TODO: find a better place to save models
             image_filenames,
             label_func,
             valid_pct=args.valid_pct,
@@ -160,7 +166,7 @@ def get_dls(args: Namespace, data_path: str):
 
 
 def get_image_command_category_dataloaders(
-    args: Namespace, data_path: str, image_filenames, y_from_filename
+    args: Namespace, data_paths: list, image_filenames, y_from_filename
 ):
     def x1_from_filename(filename: str) -> str:
         return filename
@@ -192,8 +198,9 @@ def get_image_command_category_dataloaders(
         # item_tfms=Resize(args.image_resize),
     )
 
+    # TODO: This is untested
     return image_command_data.dataloaders(
-        data_path, shuffle=True, batch_size=args.batch_size
+        data_paths[0], shuffle=True, batch_size=args.batch_size
     )
 
 
@@ -237,9 +244,9 @@ def train_model(dls: DataLoaders, args: Namespace, run, rep: int):
 
     wandb_name = args.wandb_name
     model_arch = args.model_arch
-    dataset_name = args.dataset_name
+    dataset_names = "-".join(args.dataset_names)
 
-    learn_name = f"{wandb_name}-{model_arch}-{dataset_name}-rep{rep:02}"
+    learn_name = f"{wandb_name}-{model_arch}-{dataset_names}-rep{rep:02}"
     learn_filename = learn_name + ".pkl"
     learn.export(learn_filename)
 
@@ -287,8 +294,8 @@ class ImageCommandModel(nn.Module):
 
 def main():
     args = parse_args()
-    run, data_path = setup_wandb(args)
-    dls = get_dls(args, data_path)
+    run, data_paths = setup_wandb(args)
+    dls = get_dls(args, data_paths)
     run_experiment(args, run, dls)
 
 

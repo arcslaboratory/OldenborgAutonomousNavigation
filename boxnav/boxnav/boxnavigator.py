@@ -296,7 +296,7 @@ class BoxNavigator:
                 raise SystemExit
 
             # Reset z coordinates with a 1s delay to allow the reset before moving on
-            self.ue.reset(1)
+            self.ue.reset(2)
 
             self.__sync_ue_rotation()
             self.__sync_ue_position()
@@ -394,7 +394,11 @@ class BoxNavigator:
 
         # Randomize the texture of the walls, floors, and ceilings
         if self.sync_with_ue:
-            if self.num_actions_executed != 0 and self.randomize_interval != inf:
+            if (
+                self.num_actions_executed != 0
+                and self.randomize_interval != inf
+                and self.num_actions_executed % self.randomize_interval == 0
+            ):
                 random_surface = choice(list(TexturedSurface))
                 self.ue.set_texture(random_surface, randrange(NUM_TEXTURES))
 

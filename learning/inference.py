@@ -4,7 +4,7 @@ from argparse import ArgumentParser
 from contextlib import contextmanager
 from functools import partial
 from math import radians
-from pathlib import Path
+from pathlib import Path, PurePath
 
 import enlighten
 
@@ -12,6 +12,8 @@ import wandb
 from fastai.callback.wandb import WandbCallback
 from fastai.vision.learner import load_learner
 from utils import y_from_filename  # noqa: F401 (needed for fastai load_learner)
+from subprocess import run as sprun
+from time import sleep
 
 from boxnav.box import Pt
 from boxnav.boxenv import BoxEnv
@@ -98,7 +100,6 @@ def parse_args():
         default=10,
         help="Maximum number of actions to take.",
     )
-
     add_box_navigator_arguments(arg_parser)
 
     return arg_parser.parse_args()
@@ -179,19 +180,24 @@ def main():
     )
 
     pbar_manager = enlighten.get_manager()
-    trials_pbar = pbar_manager.counter(total=args.num_trials, desc="Trials: ")
+    trials_pbar = pbar_manager.counter(
+        total=args.num_trials,
+        desc="Trials and Avg. Completion",
+        color="yellow",
+        leave=True,
+    )
+    navigation_pbar = trials_pbar.add_subcounter("green", count=0)
+    navigation_counter = 0
 
     inference_data = []
+    average_actions = []
 
     for _ in range(args.num_trials):
         total_actions_taken, correct_action_taken = 0, 0
         forward_count, rotate_left_count, rotate_right_count = 0, 0, 0
         incorrect_left_count, incorrect_right_count = 0, 0
 
-        actions_pbar = pbar_manager.counter(total=args.max_actions, desc="Actions: ")
-        navigation_pbar = pbar_manager.counter(total=100, desc="Completion: ")
-
-        for _ in range(args.max_actions):
+        for i in range(args.max_actions):
             try:
                 executed_action, correct_action = agent.execute_navigator_action()
 
@@ -221,6 +227,7 @@ def main():
                     rotate_right_count += 1
 
             if agent.get_percent_through_env() >= 99.0:
+                average_actions.append(total_actions_taken)
                 print("Agent reached final target.")
                 break
 
@@ -228,11 +235,13 @@ def main():
                 print("Agent is stuck.")
                 break
 
-            actions_pbar.update()
+            navigation_pbar.count = navigation_counter + (
+                int(agent.get_percent_through_env()) / 100
+            )
+            trials_pbar.count = _ + 1
+            navigation_pbar.update(incr=0)
 
-            # Navigation progress is based on the percentage of the environment navigated
-            navigation_pbar.count = int(agent.get_percent_through_env())
-            navigation_pbar.update()
+        navigation_counter += int(agent.get_percent_through_env()) / 100
 
         run_data = [
             agent.get_percent_through_env(),
@@ -247,9 +256,26 @@ def main():
         inference_data.append(run_data)
 
         agent.reset()
-        trials_pbar.update()
-        actions_pbar.close()
-        navigation_pbar.close()
+
+    final_metrics = (
+        "\n\nCompleted "
+        + str(100 * (navigation_pbar.count / args.num_trials))
+        + "% on average across "
+        + str(args.num_trials)
+        + " trial(s)"
+    )
+
+    if len(average_actions) > 0:
+        final_metrics += (
+            "with the agent taking "
+            + str(sum(average_actions) / len(average_actions))
+            + " actions on average to finish across "
+            + str(len(average_actions))
+            + " trial(s).\n\n"
+        )
+
+    else:
+        final_metrics += ".\n\n"
 
     agent.ue.close_osc()
     trials_pbar.close()
@@ -268,6 +294,40 @@ def main():
     ]
     inference_data_table = wandb.Table(columns=table_cols, data=inference_data)
     run.log({"Inference Data": inference_data_table})
+
+    video_name = PurePath(agent.image_directory).stem
+    filelist_name = video_name + "_filelist.txt"
+
+    image_files = sorted(agent.image_directory.glob("*.png"))
+    with open(filelist_name, "w") as file_out:
+        for file in image_files:
+            file_out.write(f"file '{Path(file)}'\n")
+
+    sprun(
+        [
+            "ffmpeg",
+            # "-f" is the format argument and "concat" specifies that the format is to concatenate multiple files
+            "-f",
+            "concat",
+            # "-safe" is the argument of whether to check the input paths for safety and "0" says they don't need to be checked
+            "-safe",
+            "0",
+            # "-i" is the input file argument and "filelist_name" is the file containing the paths to the images that will be concatenated
+            "-i",
+            filelist_name,
+            # "-c:v" sets the codec and specifies it is for video stream and "libx264" specifies the codec to encode the video stream
+            # "-c:v",
+            # "libx264",
+            # # "-pix_fmt" specifies the pixel format for the output video and "yuv420p" is a pixel format using YUV color space and 4:2:0 chroma subsampling
+            # "-pix_fmt",
+            # "yuv420p",
+            # the following specifies where the output video will be saved
+            agent.image_directory / (video_name + ".mp4"),
+            # agent.image_directory / (video_name),
+        ]
+    )
+
+    print(final_metrics)
 
 
 if __name__ == "__main__":
