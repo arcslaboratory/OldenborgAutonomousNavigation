@@ -15,13 +15,6 @@ from boxnav.environments import oldenborg_boxes as boxes
 
 box_env = BoxEnv(boxes)
 
-# TODO: move to constructor
-starting_box = boxes[0]
-initial_x = starting_box.left + starting_box.width / 2
-initial_y = starting_box.lower + 50
-initial_position = Pt(initial_x, initial_y)
-initial_rotation = radians(90)
-
 argparser = ArgumentParser("Navigate around a box environment.")
 
 add_box_navigator_arguments(argparser)
@@ -37,7 +30,7 @@ argv.append("--ue")
 
 args = argparser.parse_args()
 
-agent = BoxNavigator(box_env, initial_position, initial_rotation, args)
+agent = BoxNavigator(box_env, args)
 
 
 action_sequence = [
