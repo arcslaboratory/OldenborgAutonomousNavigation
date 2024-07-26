@@ -32,6 +32,12 @@ def main():
         action="store_true",
         help="Return current (roll, pitch, yaw) of Unreal Camera",
     )
+    parser.add_argument(
+        "--set_texture",
+        type=int,
+        nargs=2,
+        help="Set the texture of walls/floors/ceilings to a different material: (object, material) where object can be 0, 1, or 2",
+    )
 
     args = parser.parse_args()
 
@@ -55,6 +61,9 @@ def main():
 
         if args.resolution:
             osc_communicator.set_resolution(args.resolution)
+
+        if args.set_texture:
+            osc_communicator.set_texture(args.set_texture[0], args.set_texture[1])
 
 
 # Calling main function

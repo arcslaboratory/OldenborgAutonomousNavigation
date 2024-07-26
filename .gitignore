@@ -1,6 +1,7 @@
 *.png
 *.mp4
 *.gif
+*filelist.txt
 
 # https://github.com/wandb/examples/blob/master/.gitignore
 *.swp
