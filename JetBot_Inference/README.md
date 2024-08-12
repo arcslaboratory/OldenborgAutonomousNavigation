@@ -1,0 +1,3 @@
+##Remote Procedure Calls (RPC)##
+To overcome the incompatibility of newer PyTorch and Fast.ai versions that were used in model development with Python 3.6, which is the latest version supporting the Nvidia Jetbot, we built two separate environments: one for model execution and one for robot control, communicating via Remote Procedure Calls (RPCs). The Jetbot captures an image, saves it locally, and calls the model inference function with the image filename. The model loads the image, runs the inference, outputs a motion direction, and then calls the robot motion function with that direction. .
+##RPC.py##
