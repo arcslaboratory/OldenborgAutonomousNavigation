@@ -7,7 +7,7 @@ setup(
     author="Anthony J. Clark, Anjali Nuggehalli, and Francisco Morales Puente",
     license="MIT",
     packages=["ue5osc"],
-    install_requires=["python-osc"],
+    install_requires=["python-osc==1.8.3"],
     # TODO: does zip_safe do anything?
     zip_safe=False,
 )

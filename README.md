@@ -25,7 +25,7 @@ conda activate ENVIRONMENT
 # Open unreal engine before running code (ie. ARCSAssets.exe)
     # This will steal your mouse, run on split screen and use Alt+tab to navigate between screens 
 cd boxnav
-python boxsim.py NAVIGATOR --save_images IMAGE_DIRECTORY
+python boxsim.py NAVIGATOR --image_directory IMAGE_DIRECTORY
 
 # Uploads the dataset to the server
 # You can upload from wherever the data is generated (probably the same system as above)
