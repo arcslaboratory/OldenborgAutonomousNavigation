@@ -1,11 +1,8 @@
-import base64
 import inspect
 import json
 import socket
 from threading import Thread
 
-import cv2
-import numpy as np
 
 SIZE = 1024  # Buffer size for receiving data from the socket
 
@@ -19,7 +16,7 @@ class RPCServer:
         """
         self.host = host  # Host IP address for the server
         self.port = port  # Port number for the server
-        self.address = (host, port) 
+        self.address = (host, port)
         self._methods = {}  # Dictionary to store registered methods that can be called by the client
 
     def registerMethod(self, function) -> None:
@@ -37,8 +34,8 @@ class RPCServer:
         """
         try:
             for functionName, function in inspect.getmembers(instance, predicate=inspect.ismethod):
-                if not functionName.startswith('__'):  
-                    self._methods.update({functionName: function}) 
+                if not functionName.startswith('__'):
+                    self._methods.update({functionName: function})
         except:
             raise Exception('A non-class object has been passed into RPCServer.registerInstance(self, instance)')
 
@@ -46,7 +43,7 @@ class RPCServer:
         """
         Handles incoming client requests by executing the requested function and sending back the result.
         """
-        print(f'Managing requests from {address}.')  
+        print(f'Managing requests from {address}.')
         while True:
             try:
                 functionName, args, kwargs = json.loads(client.recv(SIZE).decode())  # Deserialize JSON data into function name, arguments, and keyword arguments
@@ -59,7 +56,7 @@ class RPCServer:
             try:
                 response = self._methods[functionName](*args, **kwargs)
             except Exception as e:
-                # Send back exception if function called by client is not registred 
+                # Send back exception if function called by client is not registered
                 client.sendall(json.dumps(str(e)).encode())
             else:
                 client.sendall(json.dumps(response).encode())
@@ -80,8 +77,8 @@ class RPCServer:
                     client, address = sock.accept()  # Accept a new client connection
                     Thread(target=self.__handle__, args=[client, address]).start()  # Handle the client connection in a new thread
                 except KeyboardInterrupt:
-                    print(f'- Server {self.address} interrupted') 
-                    break  
+                    print(f'- Server {self.address} interrupted')
+                    break
 
 class RPCClient:
     """
@@ -103,7 +100,7 @@ class RPCClient:
             self.__sock.connect(self.__address)  # Connect to the server
         except EOFError as e:
             print(e)
-            raise Exception('Client was not able to connect.')  
+            raise Exception('Client was not able to connect.')
 
     def disconnect(self):
         """
@@ -118,9 +115,9 @@ class RPCClient:
         """
         Dynamically handles method calls on the client by sending them to the server for execution.
         """
-        def excecute(*args, **kwargs):
+        def execute(*args, **kwargs):
             self.__sock.sendall(json.dumps((__name, args, kwargs)).encode()) # Send the function name, arguments, and keyword arguments as JSON
             response = json.loads(self.__sock.recv(SIZE).decode())   # Receive and deserialize the server's response
             return response
-            
-        return excecute 
+
+        return execute
