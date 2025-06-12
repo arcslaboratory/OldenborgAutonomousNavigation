@@ -60,7 +60,7 @@ Then to kick off the simulation you must first ensure the following steps are fo
     python boxsim.py NAVIGATOR --ue
 
     # Runs the navigator in Python and and UE, and save images to the specified path
-    python boxsim.py NAVIGATOR --save_images 'PATH/TO/DATASET'
+    python boxsim.py NAVIGATOR --image_directory 'PATH/TO/DATASET'
 
     # If desired, you can convert the images to a video using ffmpeg
     ffmpeg.exe -i "%03d.png" video.mp4
