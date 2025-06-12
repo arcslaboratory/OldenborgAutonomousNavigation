@@ -6,18 +6,21 @@ import time
 from argparse import ArgumentParser
 from contextlib import contextmanager
 from functools import partial
-from math import radians
-from os import chdir
+from math import degrees, radians
 from pathlib import Path
+from boxnav.box import Pt
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+import numpy as np
+
+# TODO: consider an alternative to os
+from os import chdir
 from subprocess import run as sprun
 
 import enlighten
-import matplotlib.pyplot as plt
-import numpy as np
 import wandb
 from fastai.callback.wandb import WandbCallback
 from fastai.vision.learner import load_learner
-from matplotlib.axes import Axes
 from utils import y_from_filename  # noqa: F401 (needed for fastai load_learner)
 
 from boxnav.boxenv import BoxEnv
@@ -62,8 +65,7 @@ inference_times = []
 image_file_names = []
 
 
-def inference_func(model, image_file: str):
-    global action_prev
+def inference_func(model, image_file: str, action_prev: Action):
 
     # store image file name for data collection
     # TODO: change to use pathlib
@@ -90,7 +92,6 @@ def inference_func(model, image_file: str):
     # action_prob = action_probs[action_index]
     # print(f"Moving {action_to_take} with probability {action_prob:.2f}")
 
-    action_prev = action_now
     return action_now
 
 
@@ -109,10 +110,23 @@ def plot_trial(axis: Axes, x_values, y_values, label: str) -> None:
     axis.plot(x_values, y_values, color=color, linestyle=line_style, label=label)
 
 
-def wandb_generate_path_plot(
-    all_xs: list[float], all_ys: list[float], num_trials: int
+def save_plotted_paths(
+    wandb_run, fig, axis: Axes, model: str, num_trials: int, output_dir: str
 ) -> None:
-    wandb.log(
+    axis.invert_xaxis()
+    axis.legend()
+    axis.set_title("Plotted Paths of " + str(num_trials) + " trials using\n" + model)
+    axis.set_xlabel("Unreal Engine x-coordinate", fontweight="bold")
+    axis.set_ylabel("Unreal Engine y-coordinate", fontweight="bold")
+    fig.savefig(output_dir + ".png")
+
+    wandb_run.log({"Plotted Paths": wandb.Image((output_dir + ".png"))})
+
+
+def wandb_generate_path_plot(
+    wandb_run, all_xs: list[float], all_ys: list[float], num_trials: int
+) -> None:
+    wandb_run.log(
         {
             "Consistency": wandb.plot.line_series(
                 xs=all_xs,
@@ -125,7 +139,7 @@ def wandb_generate_path_plot(
     )
 
 
-def wandb_generate_timer_stats(wandb_run, inference_data_table) -> None:
+def wandb_generate_timer_analysis(wandb_run, inference_data_table) -> None:
     # Distribution of how long it takes to execute actions
     wandb.log(
         {
@@ -162,10 +176,10 @@ def wandb_generate_timer_stats(wandb_run, inference_data_table) -> None:
 
 
 def wandb_generate_confusion_matrix(
-    executed_actions: list[int], correct_actions: list[int]
+    wandb_run, executed_actions: list[int], correct_actions: list[int]
 ) -> None:
     # Confusion Matrix assessing ALL trials
-    wandb.log(
+    wandb_run.log(
         {
             "conf_mat": wandb.plot.confusion_matrix(
                 title="Confusion Matrix of Inference Predicted Action vs Correct Action",
@@ -178,7 +192,9 @@ def wandb_generate_confusion_matrix(
     )
 
 
-def generate_efficiency_regression(inference_data_table) -> None:
+def generate_efficiency_regression(
+    wandb_run, inference_data_table, model: str, output_dir: str
+) -> None:
     regression_fig, regression_axis = plt.subplots()
 
     action_num = np.array(inference_data_table.get_column("Action Num"))
@@ -186,6 +202,7 @@ def generate_efficiency_regression(inference_data_table) -> None:
         inference_data_table.get_column("Percent through Environment")
     )
 
+    # TODO: Make each trial a different color plot point
     regression_axis.plot(action_num, percent_through, "o", markersize=3)
 
     # Calculate and plot the regression model
@@ -201,19 +218,21 @@ def generate_efficiency_regression(inference_data_table) -> None:
     regression_axis.text(
         0.05,
         0.95,
-        f"$R^2$ = {r_squared:.2f} \n y = {m:.2f}x + {b:.2f}",
+        f"$R^2$ = {r_squared:.2f} \ny = {m:.2f}x + {b:.2f}",
         transform=regression_axis.transAxes,
         fontsize=12,
         verticalalignment="top",
     )
 
-    regression_axis.set_title(
-        "Regression Model of Percent through Environment vs. Action Number"
-    )
+    # Add graph basics and formatting
+    regression_axis.set_title("Linear Regression Assessing the Efficiency of\n" + model)
     regression_axis.set_xlabel("Action Number", fontweight="bold")
     regression_axis.set_ylabel("Percent through Environment", fontweight="bold")
 
-    return regression_fig
+    regression_fig.savefig(output_dir + "_efficiency.png")
+    wandb_run.log(
+        {"Efficiency Linear Regression": wandb.Image((output_dir + "_efficiency.png"))}
+    )
 
 
 def parse_args():
@@ -239,6 +258,17 @@ def parse_args():
         default=10,
         help="Maximum number of actions to take.",
     )
+    arg_parser.add_argument(
+        "--alt_texture",
+        action="store_true",
+        help="Set the texture of the environment to alternative option",
+    )
+    arg_parser.add_argument(
+        "--save_minimap_video",
+        action="store_true",
+        help="Create and store gaming-style video with camera view and mini-map",
+    )
+
     add_box_navigator_arguments(arg_parser)
 
     return arg_parser.parse_args()
@@ -269,7 +299,9 @@ def main():
         raise Exception("wandb.init() failed")
 
     # Download the fastai learner
-    artifact = run.use_artifact(f"{wandb_model}:latest", type="model")
+    artifact = run.use_artifact(wandb_model, type="model")
+    wandb_model = wandb_model.split(":")
+    wandb_model = wandb_model[0]
     model_dir = artifact.download()
     model_filename = Path(model_dir) / (wandb_model + ".pkl")
 
@@ -285,19 +317,23 @@ def main():
     # TODO: temporary fix? (we might remove callback on training side)
     model.remove_cb(WandbCallback)
 
-    output_dir = Path(args.output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if not args.image_directory:
+        output_dir = Path(args.output_dir).resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Check if output directory is empty
-    if any(output_dir.iterdir()):
-        print("Output directory is not empty. Aborting.")
-        return
+        # Check if output directory is empty
+        if any(output_dir.iterdir()):
+            print("Output directory is not empty. Aborting.")
+            return
 
-    if args.output_dir:
-        args.ue = True
+        if args.output_dir:
+            args.ue = True
 
-    if args.output_dir:
-        check_path(args.output_dir)
+        if args.output_dir:
+            check_path(args.output_dir)
+
+    # TODO: fix this and consider a different name
+    snap_plot = True if args.save_minimap_video else False
 
     print("Starting inference.")
 
@@ -309,6 +345,7 @@ def main():
         args,
         rotation=radians(90),
         vision_callback=partial(inference_func, model),
+        snap_plot=snap_plot,
     )
 
     pbar_manager = enlighten.get_manager()
@@ -339,6 +376,27 @@ def main():
     average_actions = []
 
     for trial_num in range(1, args.num_trials + 1):
+        # Set randomized initial position after the first trial
+        if trial_num != 1:
+            # Create randomized position
+            new_x = agent.position.x + random.uniform(-200.0, 200.0)
+            new_y = agent.position.y + random.uniform(-50.0, 50.0)
+
+            # Set random rotation and position
+            agent.rotation = agent.rotation + np.random.uniform(radians(-8), radians(8))
+            agent.position = Pt(new_x, new_y)
+
+            # Sync the position and rotation
+            agent.ue.set_location_xy(agent.position.x, agent.position.y, delay=0.1)
+            agent.ue.set_yaw(degrees(agent.rotation))
+
+        # Update texture of environment if needed:
+        # take position and move randomly to vary starting point between trials
+        if args.alt_texture:
+            agent.ue.set_texture(0, 40)  # floor = light wood
+            agent.ue.set_texture(1, 25)  # walls = cork type of material
+            agent.ue.set_texture(2, 39)  # ceilings = dark wood
+
         xs, ys = [], []  # Track every location of the agent to plot
 
         total_actions_taken = 0
@@ -372,6 +430,13 @@ def main():
                 plot_axis.plot(current_x, current_y, "ro", markersize=5)
                 break
 
+            elif agent.no_progress():
+                print(
+                    f"Agent made {agent.no_progress_threshold} actions without progressing."
+                )
+                plot_axis.plot(current_x, current_y, "ro", markersize=5)
+                break
+
             action_data = [
                 trial_num,
                 action_num,
@@ -401,22 +466,10 @@ def main():
         # Reset the agent and all tracking bars before the next trial
         agent.reset()
 
-    final_metrics = (
-        "\n\nCompleted "
-        + str(100 * (progress_pbar.count / args.num_trials))
-        + "% on average across "
-        + str(args.num_trials)
-        + " trial(s)"
-    )
+    final_metrics = f"\n\nCompleted {100 * (progress_pbar.count / args.num_trials)}% on average across {args.num_trials} trial(s)"
 
     if len(average_actions) > 0:
-        final_metrics += (
-            "with the agent taking "
-            + str(sum(average_actions) / len(average_actions))
-            + " actions on average to finish across "
-            + str(len(average_actions))
-            + " trial(s).\n\n"
-        )
+        final_metrics += f"with the agent taking {sum(average_actions) / len(average_actions)} actions on average to finish across {len(average_actions)} trial(s).\n\n"
 
     else:
         final_metrics += ".\n\n"
@@ -426,25 +479,6 @@ def main():
     pbar_manager.stop()
 
     # ------------------------------- DATA PLOTTING IN WANDB -------------------------------
-    # Plotting/Tracking where each agent has explored
-    plot_axis.invert_xaxis()
-    plot_axis.legend()
-    plot_axis.set_title(
-        "Plotted Paths of "
-        + str(args.num_trials)
-        + " trials using\n"
-        + str(wandb_model)
-    )
-    plot_axis.set_xlabel("Unreal Engine x-coordinate", fontweight="bold")
-    plot_axis.set_ylabel("Unreal Engine y-coordinate", fontweight="bold")
-    plot_fig.savefig(str(args.output_dir) + ".png")
-
-    run.log({"Plotted Paths": wandb.Image((str(args.output_dir) + ".png"))})
-    wandb_generate_path_plot(all_xs, all_ys, args.num_trials)
-
-    # Confusion Matrix
-    wandb_generate_confusion_matrix(executed_actions, correct_actions)
-
     # Create table in Wandb tracking all data collected during the run
     action_data_labels = [
         "Trial Num",
@@ -462,59 +496,60 @@ def main():
     )
     run.log({"Inference Data per Action": inference_action_table})
 
-    # Generate efficiency regression plot in matplotlib and upload to wandb
-    regression_fig = generate_efficiency_regression(inference_action_table)
-    regression_fig.savefig(str(args.output_dir) + "_efficiency.png")
-    run.log(
-        {
-            "Efficiency Linear Regression": wandb.Image(
-                (str(args.output_dir) + "_efficiency.png")
-            )
-        }
+    # Create matplotlib graphs and Upload to Wandb (logged to the active run)
+    generate_efficiency_regression(
+        run,
+        inference_action_table,
+        str(wandb_model),
+        str(agent.run_dir / args.output_dir),
+    )
+    save_plotted_paths(
+        run,
+        plot_fig,
+        plot_axis,
+        str(wandb_model),
+        args.num_trials,
+        str(agent.run_dir / args.output_dir),
     )
 
-    # Generate and upload timer statistics (histogram + table)
-    wandb_generate_timer_stats(run, inference_action_table)
+    # Create Wandb graphs and visuals (logged to the active run)
+    wandb_generate_path_plot(run, all_xs, all_ys, args.num_trials)
+    wandb_generate_confusion_matrix(run, executed_actions, correct_actions)
+    wandb_generate_timer_analysis(run, inference_action_table)
 
+    # NOTE: do this after data collection? (group_by -> keep data where there exists table_cols[7] >= 98)
     # Create suitable containing only runs where the agent completed target
-    # completed_runs = [row for row in inference_data_table.data if row[1] >= 98.0]
-    # completed_runs_table = wandb.Table(columns=table_cols, data=completed_runs)
-    # run.log({"Completed table": completed_runs_table})
 
     # BRAINSTORM METRICS FOR **ONLY COMPLETE** RUNS
 
-    chdir(agent.image_directory)
+    agent.concat_images(agent.image_directory)
 
-    video_name = Path(agent.image_directory).stem
-    filelist_name = video_name + "_filelist.txt"
+    if snap_plot:
+        agent.concat_images(agent.animation_directory)
+        chdir("..")
 
-    image_files = sorted(agent.image_directory.glob("*.png"))
-    with open(filelist_name, "w") as file_out:
-        for file in image_files:
-            file_out.write(f"file '{file}'\nduration 0.0333\n")
-
-    sprun(
-        [
-            "ffmpeg",
-            # "-f" is the format argument and "concat" specifies that the format is to concatenate multiple files
-            "-f",
-            "concat",
-            # "-safe" is the argument of whether to check the input paths for safety and "0" says they don't need to be checked
-            "-safe",
-            "0",
-            # "-i" is the input file argument and "filelist_name" is the file containing the paths to the images that will be concatenated
-            "-i",
-            filelist_name,
-            # "-c:v" sets the codec and specifies it is for video stream and "libx264" specifies the codec to encode the video stream
-            # "-c:v",
-            # "libx264",
-            # # "-pix_fmt" specifies the pixel format for the output video and "yuv420p" is a pixel format using YUV color space and 4:2:0 chroma subsampling
-            "-pix_fmt",
-            "yuv420p",
-            # the following specifies where the output video will be saved
-            (video_name + ".mp4"),
-        ]
-    )
+        sprun(
+            [
+                "ffmpeg",
+                # directory of base video
+                "-i",
+                (agent.image_directory / (Path(agent.image_directory).stem + ".mp4")),
+                # directory of overlay video
+                "-i",
+                (
+                    agent.animation_directory
+                    / (Path(agent.animation_directory).stem + ".mp4")
+                ),
+                # "-filter_complex" allows for complex filter graphs and the rest scales the videos and location of the overlay
+                "-filter_complex",
+                "[0]scale=1080:1080[base];[1]scale=400:300[overlay];[base][overlay]overlay=W-w-20:H-h-20",
+                # "-c:a" specifies the codec for the audio stream and "copy" means it will be the same as input
+                "-c:a",
+                "copy",
+                # output name
+                (Path(agent.image_directory).stem + "_with_minimap.mp4"),
+            ]
+        )
 
     print(final_metrics)
 

@@ -32,6 +32,8 @@ def simulate(args: Namespace) -> None:
     pbar_manager = enlighten.get_manager()
     actions_pbar = pbar_manager.counter(total=args.max_total_actions, desc="   Actions")
 
+    # TODO vary initial starting location and/or target location each trial/run
+
     for _ in range(args.max_total_actions):
         if args.delay != float("inf"):
             sleep(args.delay)
@@ -150,7 +152,7 @@ def main():
     if args.image_directory:
         args.ue = True
 
-    if args.image_directory:
+    if not args.image_directory:
         check_path(args.image_directory)
 
     print("Starting simulation.")

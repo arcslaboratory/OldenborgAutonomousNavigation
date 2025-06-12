@@ -23,13 +23,13 @@ conda activate ENVIRONMENT
 # Runs a navigator in Python and the simulation environment
 # This will run on a system that can run Unreal Engine
 # Open unreal engine before running code (ie. ARCSAssets.exe)
-    # This will steal your mouse, run on split screen and use Alt+tab to navigate between screens 
+    # This will steal your mouse, run on split screen and use Alt+tab to navigate between screens
 cd boxnav
 python boxsim.py NAVIGATOR --save_images IMAGE_DIRECTORY
 
 # Uploads the dataset to the server
 # You can upload from wherever the data is generated (probably the same system as above)
-# For first time: Terminal will ask you to log-in to wandb 
+# For first time: Terminal will ask you to log-in to wandb
     # *When asked to authorize, authentication code will be hidden when pasted so hit
     # ctrl+v once and hit enter
 cd learning
@@ -37,14 +37,22 @@ python upload_data.py DATA_NAME PROJECT_NAME "Sample description of uploading ru
 
 # Trains the model
 # This should be run on a system with a GPU (e.g., our server)
+# training.py, sbatch scripts, and datasets should be in the same directory on the server (could be learning)
 cd learning
-python training.py MODEL_NAME PROJECT_NAME "Sample description of training run..." ARCHITECTURE_NAME DATA_NAME(S)
+python training.py MODEL_NAME PROJECT_NAME "Sample description of training run..." ARCHITECTURE_NAME DATA_NAME(S) --local_data
 
 # Performs inference
 # This will run on a system that can run Unreal Engine
 # Note: MODEL_NAME_FROM_WANDB can be found in arcslaboratory -> Projects -> PROJECT_NAME -> Artifacts
 cd learning
-python inference.py INFERENCE_NAME PROJECT_NAME "Sample description of inference run..." MODEL_NAME_FROM_WANDB IMAGE_SAVE_FOLDER_NAME
+python inference.py INFERENCE_NAME PROJECT_NAME "Sample description of inference run..." MODEL_NAME_FROM_WANDB:VERSION IMAGE_SAVE_FOLDER_NAME
 ~~~
 
 Notice that the first program argument for uploading, training, and inference is the name of the artifact created by that step.
+
+## Notes
+
+Some things to do
+
+- Work through the TODOs
+- Consolidate all training shell scripts into one that takes arguments

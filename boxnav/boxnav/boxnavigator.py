@@ -9,6 +9,10 @@ from celluloid import Camera
 from matplotlib import pyplot as plt
 from matplotlib.patches import Arrow, Rectangle, Wedge
 
+# TODO: consider alternatives to using os here
+from os import chdir
+from subprocess import run as sprun
+
 from ue5osc import NUM_TEXTURES, Communicator, TexturedSurface
 
 from .box import Box, Pt
@@ -183,6 +187,7 @@ class BoxNavigator:
         position: Pt | None = None,
         rotation: float | None = None,
         vision_callback: Callable[[str], Action] | None = None,
+        snap_plot: bool | None = False,
     ) -> None:
         self.env = env
 
@@ -210,15 +215,33 @@ class BoxNavigator:
         self.translation_increment = args.translation_increment
         self.rotation_increment = args.rotation_increment
         self.is_stuck_threshold = 10
+        self.no_progress_threshold = 50
 
         self.teleport_box_size = args.teleport_box_size
 
+        if args.image_directory or self.generating_animation or self.snap_plot:
+            if args.navigator is Navigator.VISION:
+                self.run_dir = Path(f"{args.image_directory}_inference_run").resolve()
+            else:
+                self.run_dir = Path(f"{args.image_directory}_boxsim_run").resolve()
+            self.run_dir.mkdir(parents=True, exist_ok=True)
+
         self.generating_animation = args.animation_extension is not None
-        if self.generating_animation:
-            self.animation_extension = args.animation_extension
+        self.snap_plot = snap_plot
+        if self.generating_animation or self.snap_plot:
             self.animation_scale = 300
-            fig, self.axis = plt.subplots()
-            self.camera = Camera(fig)
+            self.fig, self.axis = plt.subplots()
+
+            if self.generating_animation:
+                self.animation_extension = args.animation_extension
+                self.camera = Camera(self.fig)
+
+            if self.snap_plot:
+                self.animation_directory = Path(
+                    f"{self.run_dir}/{args.image_directory}_plot"
+                ).resolve()
+                self.animation_directory.mkdir(parents=True, exist_ok=True)
+                self.plot_images_saved = 0
 
         match args.navigator:
             case Navigator.PERFECT:
@@ -264,7 +287,9 @@ class BoxNavigator:
             if args.image_directory:
                 assert args.image_extension, "Saving images requires image_extension."
 
-                self.image_directory = Path(args.image_directory).resolve()
+                self.image_directory = Path(
+                    f"{self.run_dir}/{args.image_directory}"
+                ).resolve()
                 self.image_directory.mkdir(parents=True, exist_ok=True)
 
                 self.image_extension = args.image_extension
@@ -286,11 +311,14 @@ class BoxNavigator:
         self.target = self.env.boxes[0].target
         self.previous_target = self.position
 
+        self.action_prev = Action.NO_ACTION
         self.num_actions_executed = 0
         self.num_resets += 1
         self.trial_num += 1
 
         self.is_stuck_counter = 0
+        self.no_progress_counter = 0
+        self.most_progress = 0
 
         # TODO: this is clunky, maybe we should save args.navigator as a member variable
         if self.__compute_action_navigator == self.__compute_action_teleporting:
@@ -317,6 +345,8 @@ class BoxNavigator:
             self.__sync_ue_rotation()
             self.__sync_ue_position()
 
+        if self.snap_plot:
+            self.axis.cla()
         self.__update_animation()
 
     def display(self) -> None:
@@ -350,18 +380,28 @@ class BoxNavigator:
         animation.save(filename, progress_callback=progress_bar_callback)
 
     def __update_animation(self) -> None:
-        if self.generating_animation:
+        if self.generating_animation or self.snap_plot:
             self.env.display(self.axis)
             self.display()
             self.axis.invert_xaxis()
-            self.camera.snap()
-            # TODO: save the figure for overlay video
+
+            if self.generating_animation:
+                self.camera.snap()
 
     def at_final_target(self) -> bool:
         return Pt.distance(self.position, self.final_target) < self.target_threshold
 
     def is_stuck(self) -> bool:
         return self.is_stuck_counter >= self.is_stuck_threshold
+
+    def no_progress(self) -> bool:
+        self.current_completion = self.get_percent_through_env()
+        if self.current_completion <= self.most_progress:
+            self.no_progress_counter += 1
+        else:
+            self.most_progress = self.current_completion
+            self.no_progress_counter = 0
+        return self.no_progress_counter >= self.no_progress_threshold
 
     def execute_action(self, action: Action) -> bool:
         "Execute the given action."
@@ -384,8 +424,10 @@ class BoxNavigator:
                 raise NotImplementedError("Unknown action.")
 
         self.num_actions_executed += 1
+        if self.__compute_action_navigator == self.__compute_action_vision:
+            self.action_prev = action
 
-        if self.generating_animation:
+        if self.generating_animation or self.snap_plot:
             self.__update_animation()
 
         return True
@@ -409,6 +451,14 @@ class BoxNavigator:
             # Lower the delay after the first image since UE is warmed up
             self.ue.save_image(self.latest_image_filepath, delay=self.image_delay)
             self.image_delay = 0.25
+
+        # Save image of plot (which is updated later)
+        if self.snap_plot:
+            self.plot_images_saved += 1
+            self.fig.savefig(
+                f"{self.animation_directory}/{self.trial_num:03}_{self.plot_images_saved:06}.{self.image_extension}"
+            )
+            self.axis.cla()
 
         # Randomize the texture of the walls, floors, and ceilings
         if self.sync_with_ue:
@@ -675,7 +725,7 @@ class BoxNavigator:
         # - number of resets
         # - number of actions executed
         # - ...
-        return self.vision_callback(self.latest_image_filepath)
+        return self.vision_callback(self.latest_image_filepath, self.action_prev)
 
     def __update_target_if_necessary(self) -> None:
         assert not self.at_final_target(), "Already at final target."
@@ -706,3 +756,38 @@ class BoxNavigator:
         )
 
         return (progress / sum(self.env_distances)) * 100
+
+    def concat_images(self, directory):
+        chdir(directory)
+
+        video_name = Path(directory).stem
+        filelist = video_name + "_filelist.txt"
+
+        image_files = sorted(directory.glob("*.png"))
+        with open(filelist, "w") as out:
+            for file in image_files:
+                out.write(f"file '{file}'\nduration 0.0333\n")
+
+        sprun(
+            [
+                "ffmpeg",
+                # "-f" is the format argument and "concat" specifies that the format is to concatenate multiple files
+                "-f",
+                "concat",
+                # "-safe" is the argument of whether to check the input paths for safety and "0" says they don't need to be checked
+                "-safe",
+                "0",
+                # "-i" is the input file argument and "filelist_name" is the file containing the paths to the images that will be concatenated
+                "-i",
+                filelist,
+                # "-c:v" sets the codec and specifies it is for video stream and "libx264" specifies the codec to encode the video stream
+                # "-c:v",
+                # "libx264",
+                # "-pix_fmt" specifies the pixel format for the output video and "yuv420p" is a pixel format using YUV color space and 4:2:0 chroma sub-sampling
+                # encoding for dumb players
+                "-pix_fmt",
+                "yuv420p",
+                # the following specifies where the output video will be saved
+                (video_name + ".mp4"),
+            ]
+        )
