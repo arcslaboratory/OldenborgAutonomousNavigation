@@ -1,11 +1,11 @@
 import time
 
-from jetbot import Camera, Robot
+from jetbot import Camera
 from PIL import Image
 
 camera = Camera()
 time.sleep(5) # wait 5 seconds before first image to give time to put camera in right position
-for i in range(500): #500 images 
+for i in range(500): #500 images
     image_arr = camera.value
     print(i)
     image = Image.fromarray(image_arr)

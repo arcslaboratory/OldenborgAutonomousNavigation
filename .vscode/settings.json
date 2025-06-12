@@ -18,6 +18,8 @@
     "fcmae",
     "fontsize",
     "fontweight",
+    "fromarray",
+    "jetbot",
     "linestyle",
     "loguru",
     "markersize",
