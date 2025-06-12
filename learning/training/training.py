@@ -224,9 +224,9 @@ def train_model(dls: DataLoaders, args: Namespace, run, rep: int):
         "ResNet18",
         "MobileNetV4",
         "EfficientNet",
-        "ConvNextV2_Atto",
-        "ConvNextV2_Base",
-        "VitBase",
+        "ConvNextV2Atto",
+        "ConvNextV2Base",
+        "ViT",
     ]
 
     short_to_full_architectures = {
@@ -235,7 +235,7 @@ def train_model(dls: DataLoaders, args: Namespace, run, rep: int):
         "EfficientNet": "efficientnet_b3.ra2_in1k",
         "ConvNextV2Atto": "convnextv2_atto.fcmae",
         "ConvNextV2Base": "convnextv2_base.fcmae_ft_in22k_in1k",
-        "ViTBase": "vit_base_patch16_224.augreg2_in21k_ft_in1k",
+        "ViT": "vit_base_patch16_224.augreg2_in21k_ft_in1k",
     }
 
     if args.model_arch not in valid_architectures:
@@ -269,7 +269,16 @@ def train_model(dls: DataLoaders, args: Namespace, run, rep: int):
     model_arch = args.model_arch
     dataset_names = "-".join(args.dataset_names)
 
-    learn_name = f"{wandb_name}-{model_arch}-{dataset_names}-rep{rep:02}"
+    # store the datasets used in metadata
+    # TODO: see if can store this in more accessible place
+    wandb.log({"Datasets Used": str(args.dataset_names)})
+    wandb.config.update({"Datasets Used": str(args.dataset_names)})
+
+    if len(dataset_names) > 1:
+        learn_name = f"{wandb_name}-{model_arch}-MultipleDatasets-rep{rep:02}"
+    else:
+        learn_name = f"{wandb_name}-{model_arch}-{dataset_names}-rep{rep:02}"
+
     learn_filename = learn_name + ".pkl"
     learn.export(learn_filename)
 

@@ -2,7 +2,7 @@ from .box import aligned_box
 
 oldenborg_boxes = [
     # Starting box = starting position at center with height, width = 10
-    aligned_box(left=4935, right=4945, lower=155, upper=165, target=(4940, 165)),
+    aligned_box(left=4640, right=5240, lower=110, upper=210, target=(4940, 165)),
     aligned_box(left=4640, right=5240, lower=110, upper=1510, target=(4940, 865)),
     aligned_box(left=3720, right=5240, lower=700, upper=1030, target=(4000, 865)),
     aligned_box(left=3850, right=4120, lower=345, upper=1030, target=(4000, 440)),
