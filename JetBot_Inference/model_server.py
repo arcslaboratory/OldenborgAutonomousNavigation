@@ -1,17 +1,12 @@
 # Don't Change Order of Imports to avoid the error "cannot allocate memory in static TLS block"
 import pathlib
-import platform
 from argparse import ArgumentParser
 from contextlib import contextmanager
 from pathlib import Path
-from time import sleep
-import numpy
 import wandb
 from fastai.callback.wandb import WandbCallback
 from fastai.learner import load_learner
-from PIL import Image
 from rpc import RPCServer
-import cv2
 from utils import y_from_filename  # noqa: F401 (needed for fastai load_learner)
 
 # Initialize the RPC server
@@ -68,7 +63,7 @@ model = load_learner(model_filename)
 
 # Remove WandbCallback from the model (temporary fix)
 model.remove_cb(WandbCallback)
-    
+
 def model_run(image_filename):
     # Perform inference on the given image and return the predicted action
     action_to_take, action_index, action_probs = model.predict(image_filename)
