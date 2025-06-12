@@ -29,7 +29,7 @@ for file in files:
     gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
     # Find the chessboard corners in the image
     retval, corners = cv2.findChessboardCorners(gray, (9,6), None)
-    
+
     # If corners are found, refine their positions and add them to the lists
     if retval:
         objpoints.append(objp)
@@ -60,17 +60,17 @@ files_all = Path(path).glob('*.png')
 for file in files_all:
     img = cv2.imread(str(file))
     h, w = img.shape[:2]
-    
+
     # Obtain the optimal new camera matrix to undistort the image
     newcameramtx, roi = cv2.getOptimalNewCameraMatrix(mtx, dist, (w,h), 0, (w,h))
-    
+
     # Undistort the image using the camera matrix and distortion coefficients
     dst = cv2.undistort(img, mtx, dist, None, newcameramtx)
-    
+
     # Crop the image to remove any black edges resulting from the undistortion
     x, y, w, h = roi
     dst = dst[y:y+h, x:x+w]
-    
+
     # Save the undistorted image with the same filename in the "calibrated_images" folder
     name = ntpath.basename(file)
     cv2.imwrite(path + "/calibrated_images/" + name, dst)
@@ -80,13 +80,12 @@ mean_error = 0
 for i in range(len(objpoints)):
     # Project the 3D points back onto the image plane
     imgpoints2, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], mtx, dist)
-    
+
     # Calculate the error between the detected points and the reprojected points
     error = cv2.norm(imgpoints[i], imgpoints2, cv2.NORM_L2)/len(imgpoints2)
-    
+
     # Accumulate the error
     mean_error += error
 
 # Print the mean reprojection error as an indication of the calibration accuracy
 print("total error: {}".format(mean_error/len(objpoints)))
-
