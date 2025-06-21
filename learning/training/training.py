@@ -33,6 +33,8 @@ from fastai.vision.learner import (
 from fastai.vision.utils import get_image_files
 from torch import nn
 
+from data_augmentations import AlbumentationsTransform, get_train_aug, get_valid_aug
+
 
 def parse_args() -> Namespace:
     arg_parser = ArgumentParser("Train command classification networks.")
@@ -155,6 +157,10 @@ def get_dls(args: Namespace, data_paths: list):
             args, data_paths, image_filenames, label_func
         )
     else:
+        albumentations_tfms = AlbumentationsTransform(
+            get_train_aug(), get_valid_aug()
+        )  # object to provide data augmentation logic
+
         return ImageDataLoaders.from_name_func(
             data_paths[0],  # TODO: find a better place to save models
             image_filenames,
@@ -163,6 +169,9 @@ def get_dls(args: Namespace, data_paths: list):
             shuffle=True,
             bs=args.batch_size,
             item_tfms=Resize(args.image_resize),
+            batch_tfms=[
+                albumentations_tfms
+            ],  # apply data augmentations by batch after resizing
         )
 
 
