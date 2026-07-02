@@ -2,6 +2,8 @@
 *.mp4
 *.gif
 *filelist.txt
+*.zip
+jupyter_models
 
 # https://github.com/wandb/examples/blob/master/.gitignore
 *.swp
