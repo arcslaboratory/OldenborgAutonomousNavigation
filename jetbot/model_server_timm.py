@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from pathlib import Path
-
 import cv2
 import numpy as np
 from PIL import Image
@@ -10,6 +9,7 @@ from torchvision import transforms
 import timm
 import tyro
 from rpc import RPCServer
+import cv2.xphoto
 
 # ---------------------------------------------------------------------------
 # Camera calibration constants (224x224 recalibrated)
@@ -43,10 +43,13 @@ def apply_corrections(img: np.ndarray) -> np.ndarray:
     result = undistorted.astype(np.float32)
     avg_b, avg_g, avg_r = np.mean(result, axis=(0, 1))
     avg_gray = (avg_b + avg_g + avg_r) / 3
-    if all(v > 0 for v in [avg_b, avg_g, avg_r]):
-        result[:, :, 0] *= avg_gray / avg_b
-        result[:, :, 1] *= avg_gray / avg_g
-        result[:, :, 2] *= avg_gray / avg_r
+    
+#     result[:, :, 0] *= avg_gray / avg_b if avg_b > 0 else 1.0
+#      result[:, :, 0] *= avg_gray / avg_b if avg_b > 0 else 1.0
+#          result[:, :, 0] *= avg_gray / avg_b if avg_b > 0 else 1.0
+    result[:, :, 0] *= 0.88   # Blue suppress
+    result[:, :, 1] *= 1.08   # Green boost
+    result[:, :, 2] *= 1.00   # Red unchanged
 
     return np.clip(result, 0, 255).astype(np.uint8)
 
@@ -90,6 +93,30 @@ _idx_to_class: dict = {}
 _device = None
 
 
+#DEBUG FUNCTION FOR COLOR CALIBRATION
+
+# def diagnose_color(img_bgr: np.ndarray):
+#     """Prints exact channel averages to help tune color correction."""
+#     img = img_bgr.astype(np.float32)
+    
+#     avg_b = np.mean(img[:, :, 0])
+#     avg_g = np.mean(img[:, :, 1])
+#     avg_r = np.mean(img[:, :, 2])
+    
+#     print(f"Raw channel averages:")
+#     print(f"  B: {avg_b:.2f}")
+#     print(f"  G: {avg_g:.2f}")
+#     print(f"  R: {avg_r:.2f}")
+#     print(f"  B/G ratio: {avg_b/avg_g:.3f}  (>1.0 = too blue)")
+#     print(f"  R/G ratio: {avg_r/avg_g:.3f}  (<1.0 = not enough red)")
+    
+#     avg_gray = (avg_b + avg_g + avg_r) / 3.0
+#     print(f"Needed gains:")
+#     print(f"  gain_b: {avg_gray/avg_b:.3f}")
+#     print(f"  gain_g: {avg_gray/avg_g:.3f}")
+#     print(f"  gain_r: {avg_gray/avg_r:.3f}")
+
+
 def model_run(image_filename: str) -> str:
     """
     Called by the RPC client with a path to a saved PNG/JPG.
@@ -106,9 +133,17 @@ def model_run(image_filename: str) -> str:
     img_bgr = cv2.imread(str(image_filename))
     if img_bgr is None:
         raise FileNotFoundError(f"Could not load image: {image_filename}")
+        
+
+#     print("BEFORE correction:")
+#     diagnose_color(img_bgr)
 
     # 2. Correct
     img_bgr = apply_corrections(img_bgr)
+
+#     print("AFTER correction:")
+#     diagnose_color(img_bgr)
+
 
     # 3. BGR → RGB PIL
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
@@ -139,11 +174,12 @@ def main():
 
     args = tyro.cli(Args)
 
-    # Device
+#     Device
     if args.device:
         _device = torch.device(args.device)
     else:
         _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     print(f"Device: {_device}")
 
     # Load checkpoint

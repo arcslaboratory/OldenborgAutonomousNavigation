@@ -2,6 +2,11 @@
 *.mp4
 *.gif
 *filelist.txt
+*.zip
+jupyter_models/
+motion_capture/
+output/
+saved_images/
 
 # https://github.com/wandb/examples/blob/master/.gitignore
 *.swp

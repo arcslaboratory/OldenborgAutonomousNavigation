@@ -10,6 +10,8 @@ from PIL import Image
 from rpc import RPCClient
 
 from jetbot import Camera, Robot
+import time
+import csv
 
 
 class Bot:
@@ -50,9 +52,9 @@ class Bot:
         if action_to_take == 0 or action_to_take == "forward":
             self.robot.forward(speed=speed)
         elif action_to_take == 1 or action_to_take == "left":
-            self.robot.left(speed=speed)
+            self.robot.left(speed=speed*1.01)
         elif action_to_take == 2 or action_to_take == "right":
-            self.robot.right(speed=speed)
+            self.robot.right(speed=speed*1.01)
         else:
             raise ValueError(f"Unknown action: {action_to_take}")
 
@@ -136,8 +138,12 @@ def main():
     parser.add_argument(
         "--duration", type=float, default=1.0, help="Duration of each action (seconds)"
     )
+    parser.add_argument(
+        "--log", type=str, default="inference_log.csv", help="Name of .csv log"
+    )
     args = parser.parse_args()
 
+    
     # Establish connection with the RPC server
     server = RPCClient("127.0.0.1", 8033)
     server.connect()
@@ -157,13 +163,23 @@ def main():
     look_thread = Thread(target=keyboard_kill_switch, args=(q, done))
     look_thread.start()
 
+    logfile = open(args.log, "w", newline="")
+    logwriter = csv.writer(logfile)
+    logwriter.writerow(["step", "image_filename", "action", "inference_time"])
+
     for action_step in range(args.max_actions):
         # Generate filename for the image
         image_filename = f"{output_dir}/{action_step:04}.png"
         bot.save_image(image_filename)
 
         # Execute the command from server model
-        bot.execute_command(server.model_run(image_filename), args.speed)
+        start = time.time()
+        action = server.model_run(image_filename)
+        inference_time = time.time() - start
+
+        bot.execute_command(action, args.speed)
+
+        logwriter.writerow([action_step, image_filename, action, inference_time])
 
         sleep(args.duration)
 
@@ -175,6 +191,10 @@ def main():
             print("Stopping the robot...")
             bot.stop()  # Stop the robot
             break
+
+    
+    logfile.close()
+
 
     server.disconnect()  # Disconnect from the server
 

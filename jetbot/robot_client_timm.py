@@ -30,20 +30,29 @@ class Bot:
         """
         img_rgb = self.camera.value                          # uint8 HxWx3 RGB
         img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(str(image_filename), img_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        
+        # Crop bottom half — same as model server apply_corrections
+        h, w = img_bgr.shape[:2]
+        bottom_half = img_bgr[h // 2 : h, 0 : w]
+        resized = cv2.resize(bottom_half, (w, h), interpolation=cv2.INTER_LINEAR)
+        cv2.imwrite(str(image_filename), resized, [cv2.IMWRITE_JPEG_QUALITY, 80])
 
     def execute_command(self, action_to_take, speed):
         if action_to_take == 0 or action_to_take == "forward":
             self.robot.forward(speed=speed)
         elif action_to_take == 1 or action_to_take == "left":
-            self.robot.left(speed=speed * 1.01)
-        elif action_to_take == 2 or action_to_take == "right":
+            #The physical motors are flipped 
             self.robot.right(speed=speed * 1.01)
+        elif action_to_take == 2 or action_to_take == "right":
+            #The physical motors are flipped 
+            self.robot.left(speed=speed * 1.01)
         else:
             raise ValueError(f"Unknown action: {action_to_take}")
 
+
     def stop(self):
         self.robot.stop()
+        
 
 
 # ---------------------------------------------------------------------------
@@ -66,11 +75,11 @@ def main():
     parser = ArgumentParser(description="Jetbot Robot Client")
     parser.add_argument("--output_dir", type=str, default="./saved_images",
                         help="Directory to save images")
-    parser.add_argument("--max_actions", type=int, default=150,
+    parser.add_argument("--max_actions", type=int, default=999999,
                         help="Maximum number of actions")
     parser.add_argument("--speed", type=float, default=2.5,
                         help="Speed of the robot")
-    parser.add_argument("--duration", type=float, default=1.0,
+    parser.add_argument("--duration", type=float, default=0.2,
                         help="Duration of each action (seconds)")
     parser.add_argument("--log", type=str, default="inference_log.csv",
                         help="Name of .csv log")
@@ -89,26 +98,40 @@ def main():
 
     look_thread = Thread(target=keyboard_kill_switch, args=(q, done))
     look_thread.start()
+    
+    log_dir = Path("inference_logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / args.log
 
     logfile = open(args.log, "w", newline="")
     logwriter = csv.writer(logfile)
     logwriter.writerow(["step", "image_filename", "action", "inference_time"])
+    
 
     for action_step in range(args.max_actions):
         image_filename = str(output_dir / f"{action_step:04}.jpg")
+        
+        # 1. Stop first
+        bot.stop()
+        
+        # 2. Wait for camera to settle (no motion blur)
+        time.sleep(0.3)
 
-        # Save raw JPEG — all correction happens on the model server
+        # 3. Save raw JPEG — all correction happens on the model server
         bot.save_image(image_filename)
-
+        
+        # 4. Predict on clean frame
         start = time.time()
+        
         action = server.model_run(image_filename)
+    
         inference_time = time.time() - start
 
         bot.execute_command(action, args.speed)
-        logwriter.writerow([action_step, image_filename, action, inference_time])
-
         sleep(args.duration)
+        
         bot.stop()
+        logwriter.writerow([action_step, image_filename, action, inference_time])
 
         if not q.empty():
             print("Stopping the robot...")
