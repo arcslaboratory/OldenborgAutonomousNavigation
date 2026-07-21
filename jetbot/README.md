@@ -14,7 +14,6 @@ cd /home/jetbot/arcs/OldenborgAutonomousNavigation/jetbot
 mamba activate arcs-su25
 
 # Run the model server using the conda Python interpreter
-python3 model_server.py
 python model_server.py --wandb_name "jetbot-test" --wandb_project "summer2025-del" --wandb_model "test1-ResNet18-test-rep00" --wandb-notes "Testing the model server."
 ```
 
