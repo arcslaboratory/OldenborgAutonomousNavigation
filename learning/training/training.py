@@ -33,6 +33,8 @@ from fastai.vision.learner import (
 from fastai.vision.utils import get_image_files
 from torch import nn
 
+from data_augmentations import AlbumentationsTransform, get_train_aug, get_valid_aug
+
 
 def parse_args() -> Namespace:
     arg_parser = ArgumentParser("Train command classification networks.")
@@ -70,6 +72,11 @@ def parse_args() -> Namespace:
     )
 
     # Training configuration
+    arg_parser.add_argument(
+        "--use_augmentation",
+        action="store_true",
+        help="Enable data augmentation if included (default is off).",
+    )
     arg_parser.add_argument(
         "--num_epochs", type=int, default=10, help="Number of training epochs."
     )
@@ -126,19 +133,31 @@ def get_angle_from_filename(filename: str) -> float:
 
 
 def y_from_filename(rotation_threshold: float, filename: str) -> str:
-    """Extracts the direction label from the filename of an image.
+    path = Path(filename)
+    filename_stem = path.stem
+    parts = filename_stem.split("_")
+    direction_keywords = {"left", "right", "forward"}
 
-    Example: "path/to/file/001_000011_-1p50.png" --> "right"
-    """
-    filename_stem = Path(filename).stem
-    angle = float(filename_stem.split("_")[2].replace("p", "."))
+    # Case 1: filename starts with a known direction
+    if parts[0].lower() in direction_keywords:
+        return parts[0].lower()
 
-    if angle > rotation_threshold:
-        return "left"
-    elif angle < -rotation_threshold:
-        return "right"
-    else:
-        return "forward"
+    # Case 2: try to parse angle from third underscore-separated part
+    if len(parts) >= 3:
+        try:
+            angle_str = parts[2].replace("p", ".")
+            angle = float(angle_str)
+            if angle > rotation_threshold:
+                return "left"
+            elif angle < -rotation_threshold:
+                return "right"
+            else:
+                return "forward"
+        except ValueError:
+            pass  # fall through to fallback
+
+    # Fallback: get label from parent directory
+    return path.parent.name.lower()
 
 
 def get_dls(args: Namespace, data_paths: list):
@@ -163,6 +182,11 @@ def get_dls(args: Namespace, data_paths: list):
             shuffle=True,
             bs=args.batch_size,
             item_tfms=Resize(args.image_resize),
+            batch_tfms=[
+                AlbumentationsTransform(get_train_aug(), get_valid_aug())
+            ]  # object to provide data augmentation logic
+            if args.use_augmentation  # apply data augmentations by batch after resizing if indicated in args
+            else [],
         )
 
 

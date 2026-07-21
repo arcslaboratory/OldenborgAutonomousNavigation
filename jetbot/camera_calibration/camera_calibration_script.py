@@ -18,7 +18,7 @@ objpoints = []  # store the 3D real-world points for each calibration image.
 imgpoints = []  # store the 2D image plane points that correspond to the objpoints.
 
 # Define the path to the directory containing the calibration images
-path = os.path.dirname(os.path.abspath(__file__)) + "/good_images"
+path = os.path.dirname(os.path.abspath(__file__)) + "/images"
 # Get a list of all PNG image files in the directory
 files = Path(path).glob("*.png")
 
